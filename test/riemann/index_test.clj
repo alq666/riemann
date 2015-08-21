@@ -2,6 +2,7 @@
   (:use riemann.index
         riemann.core
         riemann.query
+        [riemann.instrumentation :only [events]]
         [riemann.common :only [event]]
         [riemann.time :only [unix-time]]
         clojure.test)
@@ -71,6 +72,13 @@
            (is (= 5 (:metric (lookup i 1 1))))
            (is (= 7 (:metric (lookup i 1 2))))))
 
+(deftest nbhm-instrumentation
+  (let [i (wrap-index (index))]
+
+    (i {:host 1 :service 1 :metric 5 :time 0})
+    (i {:host 1 :service 2 :metric 7 :time 0})
+
+    (is (= 2 (:metric (first (filter #(= (:service %) "riemann index size") (events i))))))))
 
 (defn random-event
   [& {:as event}]
@@ -132,19 +140,17 @@
       (is (= nil (query-for-host-and-service ast))))))
 
 (deftest service-interface
-  (testing "service equivelance of indexes"
+  (testing "service equivalance of indexes"
     (let [one-index (index)
           two-index (index)]
       (is (service/equiv? one-index two-index))))
 
-  (testing "service equivelance of wrapped indexes"
+  (testing "service equivalance of wrapped indexes"
     (let [one-index (wrap-index (index))
           two-index (wrap-index (index))]
       (is (service/equiv? one-index two-index))))
 
-  (testing "service equivelance of wrapped to unwrapped index"
+  (testing "service equivalance of wrapped to unwrapped index"
     (let [one-index (wrap-index (index))
           two-index (index)]
-      (is (service/equiv? one-index two-index))))
-
-  )
+      (is (not (service/equiv? one-index two-index))))))

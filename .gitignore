@@ -1,5 +1,7 @@
 .cake
+.attach_pid*
 pom.xml
+pom.xml.asc
 *.jar
 *.tar
 *.tar.bz2
@@ -21,3 +23,4 @@ reimann-*.zip
 site/**
 bench/**
 target/**
+/target/

@@ -78,6 +78,11 @@
         add2    #(swap! vals2 conj %)]
     (run-stream (sdo add1 add2) [1 2 3])
     (is (= @vals1 [1 2 3]))
+    (is (= @vals2 [1 2 3]))
+    (run-stream (sdo add1) [4 5 6])
+    (is (= @vals1 [1 2 3 4 5 6]))
+    (run-stream (sdo) [6 7 8])
+    (is (= @vals1 [1 2 3 4 5 6]))
     (is (= @vals2 [1 2 3]))))
 
 (deftest exception-stream-test
@@ -682,11 +687,15 @@
            (is (= {:service "foo"} (deref r)))
 
            (s {:service "bar" :test "baz"})
-           (is (= {:service "foo" :test "baz"} (deref r)))))
+           (is (= {:service "foo" :test "baz"} (deref r)))
+
+           (s [{:service "bar" :test "baz"}])
+           (is (= [{:service "foo" :test "baz"}] (deref r)))))
 
 (deftest with-map
          (let [r (ref nil)
-               s (with {:service "foo" :state nil} (fn [e] (dosync (ref-set r e))))]
+               s (with {:service "foo" :state nil} (fn [e] (dosync (ref-set r e))))
+               empty-s (with {} (fn [e] (dosync (ref-set r e))))]
            (s (event {:service nil}))
            (is (= "foo" (:service (deref r))))
            (is (= nil (:state (deref r))))
@@ -697,7 +706,10 @@
 
            (s (event {:service "bar" :test "baz" :state "evil"}))
            (is (= "foo" (:service (deref r))))
-           (is (= nil (:state (deref r))))))
+           (is (= nil (:state (deref r))))
+
+           (empty-s (event {:service "bar" :test "baz"}))
+           (is (= "bar" (:service (deref r))))))
 
 (deftest by-single
          ; Each test stream keeps track of the first host it sees, and confirms
@@ -1633,6 +1645,40 @@
                       [[{:time 5} {:time 6}]
                        [{:time 8} {:time 8}]
                        [{:time 9}]]))
+
+(deftest fixed-offset-time-window-test
+         ; Zero-time windows.
+         (is (thrown? IllegalArgumentException (fixed-offset-time-window 0)))
+
+         ; n-width windows
+         (test-stream (fixed-offset-time-window 2) [] [])
+         (test-stream (fixed-offset-time-window 2) [{:time 1}] [])
+         (test-stream (fixed-offset-time-window 2) 
+                      [{:time 1} {:time 2} {:time 3} {:time 4} {:time 5} {:time 6}]
+                      [[{:time 1}]
+                       [{:time 2} {:time 3}]
+                       [{:time 4} {:time 5}]])
+
+         ; With a gap
+         (test-stream (fixed-offset-time-window 2) [{:time 1} {:time 7}] 
+                      [[{:time 1}] [] []])
+
+         ; With out-of-order events
+         (test-stream (fixed-offset-time-window 2)
+                      [{:time 5}
+                       {:time 1}
+                       {:time 2}
+                       {:time 6}
+                       {:time 3}
+                       {:time 8}
+                       {:time 4}
+                       {:time 8}
+                       {:time 5}
+                       {:time 9}
+                       {:time 11}]
+                      [[{:time 5}]
+                       [{:time 6}]
+                       [{:time 8} {:time 8} {:time 9}]]))
 
 (deftest part-time-simple-test
          ; Record windows of [start-time e1 e2 e3 end-time]

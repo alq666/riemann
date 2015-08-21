@@ -33,16 +33,14 @@
   LogentriesStub
   (open [this]
     (let [server-socket (ServerSocket. port)
-          client-socket (atom nil)
-          input (atom nil)]
-      (.start
-        (Thread.
-          (fn []
-            (let [socket (.accept server-socket)
-                  in (BufferedReader. (InputStreamReader. (.getInputStream socket)))]
-              (reset! client-socket socket)
-              (reset! input in)))))
-      (assoc this 
+          client-socket (promise)
+          input         (promise)]
+      (future
+        (let [socket (.accept server-socket)
+              in (BufferedReader. (InputStreamReader. (.getInputStream socket)))]
+          (deliver client-socket socket)
+          (deliver input in)))
+      (assoc this
              :server-socket server-socket
              :client-socket client-socket
              :input input)))
@@ -57,19 +55,20 @@
            "New user, service='production front' state='ok'"))))
 
 (deftest test-logentries
-  (let [le-stub (open (DefaultLogentriesStub. port))
-        le (logentries {:host host
-                        :port port
-                        :token token
-                        :pool-size 1
-                        :claim-timeout 1})]
-    (le (test-event {:description "Test event 1"}))
-    (le (test-event {:description "Test event 2"}))
-    (let [in @(:input le-stub)
-          line-1 (.readLine in)
-          line-2 (.readLine in)]
-      (is (.startsWith line-1 "Test event 1"))
-      (is (.startsWith line-2 "Test event 2"))
-      (is (.endsWith line-1 token))
-      (is (.endsWith line-2 token)))
-    (close le-stub)))
+  (logging/suppress ["riemann.logentries"]
+    (let [le-stub (open (DefaultLogentriesStub. port))
+          le (logentries {:host host
+                          :port port
+                          :token token
+                          :pool-size 1
+                          :claim-timeout 1})]
+      (le (test-event {:description "Test event 1"}))
+      (le (test-event {:description "Test event 2"}))
+      (let [in @(:input le-stub)
+            line-1 (.readLine in)
+            line-2 (.readLine in)]
+        (is (.startsWith line-1 "Test event 1"))
+        (is (.startsWith line-2 "Test event 2"))
+        (is (.endsWith line-1 token))
+        (is (.endsWith line-2 token)))
+      (close le-stub))))

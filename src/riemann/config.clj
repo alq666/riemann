@@ -12,6 +12,7 @@
             [riemann.transport.websockets :as websockets]
             [riemann.transport.sse        :as sse]
             [riemann.transport.graphite   :as graphite]
+            [riemann.transport.opentsdb   :as opentsdb]
             [riemann.logging :as logging]
             [riemann.folds :as folds]
             [riemann.pubsub :as pubsub]
@@ -30,6 +31,7 @@
         [riemann.time :only [unix-time linear-time once! every!]]
         [riemann.pagerduty :only [pagerduty]]
         [riemann.opsgenie :only [opsgenie]]
+        [riemann.keenio :only [keenio]]
         [riemann.campfire :only [campfire]]
         [riemann.kairosdb :only [kairosdb]]
         [riemann.librato :only [librato-metrics]]
@@ -41,11 +43,14 @@
         [riemann.slack :only [slack]]
         [riemann.stackdriver :only [stackdriver]]
         [riemann.cloudwatch :only [cloudwatch]]
+        [riemann.datadog :only [datadog]]
         [cemerick.pomegranate :only [add-dependencies]]
         [riemann.shinken :only [shinken]]
         [riemann.xymon :only [xymon]]
         [riemann.mailgun :only [mailgun]]
         [riemann.twilio :only [twilio]]
+        [riemann.boundary :only [boundary]]
+        [riemann.pushover :only [pushover]]
         riemann.streams))
 
 (def core "The currently running core."
@@ -137,6 +142,13 @@
   [& opts]
   (service! (graphite/graphite-server (kwargs-or-map opts))))
 
+(defn opentsdb-server
+  "Add a new OpenTSDB TCP server with opts to the default core.
+
+  (opentsdb-server {:port 4242})"
+  [& opts]
+  (service! (opentsdb/opentsdb-server (kwargs-or-map opts))))
+
 (defn udp-server
   "Add a new UDP server with opts to the default core.
 
@@ -169,13 +181,19 @@
   "Set the index used by this core. Returns the index."
   [& opts]
   (locking core
-    (let [index (apply riemann.index/index opts)
+    (let [index (:index @core)
           ; Note that we need to wrap the *current* core's pubsub; the next
           ; core's pubsub module will be discarded in favor of the current one
           ; when core transition takes place.
-          wrapper (core/wrap-index index (:pubsub @core))]
-      (swap! next-core assoc :index wrapper)
-      wrapper)))
+          index' (-> (apply riemann.index/index opts)
+                     (core/wrap-index (:pubsub @core)))
+          ; If the new index is equivalent to the old one, preserve the old
+          ; one.
+          index' (if (service/equiv? index index')
+                   index
+                   index')]
+      (swap! next-core assoc :index index')
+      index')))
 
 (defn update-index
   "Updates the given index with all events received. Also publishes to the
@@ -381,7 +399,10 @@
     (binding [*config-file* path
               *ns* (find-ns 'riemann.config)]
       (if (.isDirectory file)
-        (doseq [f (file-seq file)]
-          (when (config-file? f)
-            (load-file (.toString f))))
+        (->> file
+             file-seq
+             (filter config-file?)
+             (map str)
+             (map include)
+             dorun)
         (load-file path)))))

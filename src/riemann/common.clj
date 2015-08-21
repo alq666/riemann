@@ -22,15 +22,16 @@
   (match [pred object]
     "Does predicate describe object?"))
 
-; Deprecation
+(def deprecations-emitted (atom {}))
+
 (defmacro deprecated
   "Wraps body in an implicit (do), and logs a deprecation notice when invoked."
   [comment & body]
-  `(do
-     (info ~(str "Deprecated: "
-                 (format "<%s:%s> " *file* (:line (meta &form)))
-                 comment))
-     ~@body))
+  (let [id (str *file* ":" (:line (meta &form)) " - " comment)]
+    (swap! deprecations-emitted assoc id (delay (info comment)))
+    `(do
+       (force (get @deprecations-emitted ~id))
+       ~@body)))
 
 (def hostname-refresh-interval
   "How often to allow shelling out to hostname (1), in seconds."
@@ -110,6 +111,11 @@
   [msg]
   (.toByteArray (encode-pb-msg msg)))
 
+(defn pkey
+  "Primary key for an event."
+  [event]
+  [(:host event) (:service event)])
+
 (defn expire
   "An expired version of an event."
   [event]
@@ -139,13 +145,16 @@
 
 (defn exception->event
   "Creates an event from an Exception."
-  [^Throwable e]
-  (map->Event {:time (unix-time)
-               :service "riemann exception"
-               :state "error"
-               :tags ["exception" (.getName (class e))]
-               :description (str e "\n\n"
-                                 (join "\n" (.getStackTrace e)))}))
+  ([exception] (exception->event exception nil))
+  ([^Throwable e original]
+   (map->Event {:time (unix-time)
+                :service "riemann exception"
+                :state "error"
+                :tags ["exception" (.getName (class e))]
+                :event original
+                :exception e
+                :description (str e "\n\n"
+                                  (join "\n" (.getStackTrace e)))})))
 
 (defn approx-equal
   "Returns true if x and y are roughly equal, such that x/y is within tol of

@@ -70,7 +70,7 @@
          (catch Throwable e#
            (warn e# (str child# " threw"))
            (if-let [ex-stream# *exception-stream*]
-             (ex-stream# (exception->event e#))))))
+             (ex-stream# (exception->event e# ~event))))))
      ; TODO: Why return true?
      true))
 
@@ -235,9 +235,11 @@
   a single variable.
 
   (sdo prn (rate 5 index))"
-  [& children]
-  (fn stream [event]
-    (call-rescue event children)))
+  ([] bit-bucket)
+  ([child] child)
+  ([child & children]
+     (fn stream [event]
+       (call-rescue event (cons child children)))))
 
 (defn stream
   [& args]
@@ -323,7 +325,7 @@
         (when events
           (call-rescue events children))))))
 
-(defn fixed-time-window
+(defn- fixed-time-window-fn
   "A fixed window over the event stream in time. Emits vectors of events, such
   that each vector has events from a distinct n-second interval. Windows do
   *not* overlap; each event appears at most once in the output stream. Once an
@@ -331,7 +333,7 @@
   silently dropped.
 
   Events without times accrue in the current window."
-  [n & children]
+  [n start-time-fn & children]
   ; This is not a particularly inspired or clear implementation. :-(
 
   (when (zero? n)
@@ -351,7 +353,7 @@
                         ; No start time
                         (nil? @start-time)
                         (do
-                          (ref-set start-time (:time event))
+                          (ref-set start-time (start-time-fn n event))
                           (ref-set buffer [event])
                           nil)
 
@@ -378,6 +380,29 @@
           (doseq [w windows]
             (call-rescue w children)))))))
 
+(defn fixed-time-window
+  "A fixed window over the event stream in time. Emits vectors of events, such
+  that each vector has events from a distinct n-second interval. Windows do
+  *not* overlap; each event appears at most once in the output stream. Once an
+  event is emitted, all events *older or equal* to that emitted event are
+  silently dropped.
+
+  Events without times accrue in the current window."
+  [n & children]
+  (apply fixed-time-window-fn n (fn [n event] (:time event)) children))
+
+(defn fixed-offset-time-window
+  "Like fixed-time-window, but divides wall clock time into discrete windows.
+
+  A fixed window over the event stream in time. Emits vectors of events, such
+  that each vector has events from a distinct n-second interval. Windows do
+  *not* overlap; each event appears at most once in the output stream. Once an
+  event is emitted, all events *older or equal* to that emitted event are
+  silently dropped.
+
+  Events without times accrue in the current window."
+  [n & children]
+  (apply fixed-time-window-fn n (fn [n event] (- (:time event) (mod (:time event) n))) children))
 
 (defn window
   "Alias for moving-event-window."
@@ -1033,7 +1058,9 @@
            bottom-stream))))
 
 (defn throttle
-  "Passes on n events every dt seconds. Drops events when necessary."
+  "Passes on at most n events every dt seconds. If more than n events arrive in
+  a dt-second fixed window, drops remaining events. Imposes no additional
+  latency; events are either passed on immediately or dropped."
   [n dt & children]
   (part-time-simple
     dt
@@ -1185,8 +1212,8 @@
   [client]
   (fn stream [es]
     (if (map? es)
-      (riemann.client/send-event client es)
-      (riemann.client/send-events client es))))
+      @(riemann.client/send-event client es)
+      @(riemann.client/send-events client es))))
 
 (defn match
   "Passes events on to children only when (f event) matches value, using
@@ -1274,22 +1301,32 @@
   (with {:host nil :state \"broken\"} prn)"
   [& args]
   (if (map? (first args))
-    ; Merge in a map of new values.
-    (let [[m & children] args]
-      (fn stream [event]
-        ;    Merge on protobufs is broken; nil values aren't applied.
-        ;    (let [e (merge event m)]
-        (let [e (reduce (fn [m, [k, v]]
-                          (if (nil? v) (dissoc m k) (assoc m k v)))
-                        event m)]
-          (call-rescue e children))))
+    (let [[m & children] args
+          transform-event
+          (fn [individual-event]
+            (reduce (fn [m, [k, v]]
+                      (if (nil? v) (dissoc m k) (assoc m k v)))
+                    individual-event m))]
+      (if (empty? m)
+        (fn stream [event]
+          (call-rescue event children))
+        (fn stream [event]
+          (if (vector? event)
+            (call-rescue
+              (into [] (map transform-event event))
+              children)
+            (call-rescue (transform-event event) children)))))
 
     ; Change a particular key.
-    (let [[k v & children] args]
+    (let [[k v & children] args
+          transform-event
+          (fn [individual-event]
+            (if (nil? v) (dissoc individual-event k) (assoc individual-event k v)))]
       (fn stream [event]
-        ;    (let [e (assoc event k v)]
-        (let [e (if (nil? v) (dissoc event k) (assoc event k v))]
-          (call-rescue e children))))))
+        (if (vector? event)
+          (call-rescue (into [] (map transform-event event))
+            children)
+          (call-rescue (transform-event event) children))))))
 
 (defn default
   "Like `with`, but does not override existing (i.e. non-nil) values. Useful
@@ -1634,9 +1671,10 @@
   [f & children]
   (let [[true-kids else-kids] (where-partition-clauses children)]
     `(let [true-kids# ~true-kids
-           else-kids# ~else-kids]
+           else-kids# ~else-kids
+           predicate# ~f]
       (fn stream# [event#]
-         (let [value# (~f event#)]
+         (let [value# (predicate# event#)]
            (if value#
              (call-rescue event# true-kids#)
              (call-rescue event# else-kids#))

@@ -1,3 +1,184 @@
+# Version 0.2.10
+
+0.2.10 brings long-awaited fixes to the Influx integration, support for sending
+events to Pushover, and improvements to slack and hipchat formatting. There are
+also a few minor usability improvements, and assorted library updates.
+
+## Bugfixes
+
+- RPM package correctly requires JDK 1.7+
+- \*config-file\* is correctly bound when including directories
+
+## Deprecations and API changes
+
+## New features
+
+- New metric for index size
+- Pushover integration
+- riemann.test/lookup: For folks who just want the most recent event for a host
+  & service
+
+## Improvements
+
+- Tunable UDP server so-rcvbuf
+- Mailer gives more helpful feedback when you provide non-string addresses
+- InfluxDB 0.9 support
+- Hipchat supports private servers and uses the v2 API
+- More detailed Slack messages
+- Slack custom formatters can emit markup
+- Email supports both varargs and sequential address lists
+- Better docstrings for throttle
+- TSDB tags are converted to custom fields
+- epoll server can now be disabled with -Dnetty.epoll.enabled=false
+
+## Internals
+
+- Removed old query parser altogether
+- riemann-clojure-client 0.4.1
+- tools.nrepl 0.2.7 -> 0.2.10
+- cheshire 5.4.0 -> 5.5.0
+- capacitor 0.4.2 -> 0.4.3
+- amazonica 0.3.13 -> 0.3.28
+- slingshot 0.12.1 -> 0.12.2
+- clj-http 1.0.1 -> 1.1.2
+- aws-java-sdk 1.9.13 -> 1.10.5.1
+- clj-time 0.9.0 -> 0.10.0
+- slf4j-log4j12 1.7.10 -> 1.7.12
+
+
+# Version 0.2.9
+
+0.2.9 brings a new query engine, packaging improvements, and assorted bugfixes.
+We have two new services we can talk to: Boundary, and Keen IO. The InfluxDB
+adapter is now dramatically faster, and we have better test coverage for some
+integration clients. There's also a host of library updates, which enables new
+features and better library interop for advanced users.
+
+## Bugfixes
+
+- RPM init scripts return proper errors when startup fails
+- streams/where now only evaluates its predicate expression once
+- Fix debian and RPM package file ownership; should fix the default logging
+  errors
+- Only enable epoll on linux/amd64 (fixes i386 and ARM crashes)
+
+## Deprecations and API changes
+
+- bin scripts now place EXTRA_CLASSPATH last, not first, to ensure its classes
+  take precedence.
+
+## New features
+
+- streams/fixed-offset-time-window
+- Keen IO integration
+- Boundary integration
+- Queries support custom fields
+
+## Improvements
+
+- Exception events now carry the original exception in the :exception field.
+- Bring back tcp/udp server "threads active" metrics
+- Codox links to Github source
+- Deprecation warnings are only emitted once
+- InfluxDB now accepts sequences of events, so it works with batch, rollup, etc
+- InfluxDB passes event times on to Influx
+- Various xymon improvements
+- Tarball now supports EXTRA_CLASSPATH and EXTRA_JAVA_OPTS
+- Query parser now offers better feedback on syntax errors
+- Reduced log spew from misbehaving graphite clients
+
+## Internals
+
+- Removed need for Boundary maven repo
+- Maven repo cached between builds (improves testing speed in CI)
+- clj-time 0.6.0 -> 0.9.0
+- high-scale-lib 1.0.4 -> 1.0.6
+- clj-http 0.9.1 -> 1.0.0
+- capacitor 0.2.2 -> 0.4.2
+- cheshire 5.3.1 -> 5.4.0
+- aws-java-sdk 1.7.5 -> 1.9.16
+- riemann-clojure-client 0.3.0 -> 0.3.1
+- tools.logging 0.2.6 -> 0.3.1
+- apache-log4j-extras 1.0 -> 1.2.17
+- postal 1.11.1 -> 1.11.3
+- jsonevent-layout 1.5 -> 1.7
+- slingshot 0.10.3 -> 0.12.1
+- slf4j-log4j12 1.7.7 -> 1.7.10
+- core.cache 0.6.3 -> 0.6.4
+- amazonica 0.2.26->0.3.13
+- tools.nrepl 0.2.3 -> 0.2.7
+- aws-java-sdk 1.7.5 -> 1.9.13
+- less-awful-ssl 0.1.1 -> 1.0.0
+
+
+# Version 0.2.8
+
+Minor followup release: fixes a bug in 0.2.7 which broke TCP servers on
+non-linux platforms.
+
+## Bugfixes
+
+- TCP transport now uses epoll only on Linux platforms, Java NIO otherwise.
+
+
+# Version 0.2.7
+
+Performance improvements and important bugfixes: 0.2.7 is long overdue. New
+integrations with Blueflood, Logentries, Opsgenie, Cloudwatch, Mailgun, Xymon,
+Datadog, and Twilio.
+
+## Bugfixes
+
+- Stackdriver: fix a shadowing warning
+- Debian package now recommends Java
+- Debian package launches Riemann on boot by default
+- riemann test command now actually exists, works from startup scripts
+- Indexes no longer disappear on config reload
+
+## Deprecations and API changes
+
+- Riemann-clojure-client and riemann-java-client 0.3.x, included in riemann
+  0.2.7, return asynchronous results by default. `streams/forward` is still
+  synchronous, but if you're invoking clients manually, make sure to `deref`
+  results from `send-event` etc.
+
+## New features
+
+- Dynamic loading of dependencies via the new plugin system
+- Logentries integration
+- Blueflood integration
+- Xymon integration
+- Mailgun integration
+- Opsgenie integration
+- Cloudwatch integration
+- Datadog integration
+- Twilio integration
+- Slack adapter allows incoming webhooks
+- OpenTSDB server
+
+## Improvements
+
+- Logstash now sends events without metrics
+- You can set log4j options via a properties file
+- Aggressive JVM opts now includes -server
+- Various docstring improvements
+- Optimizations to zero- and single-argument forms of `sdo`
+- Faster startup and shutdown for TCP/UDP servers
+- `streams/with` can work with vectors of events, perf improvements
+- More type hints in performance-critical paths
+
+## Internals
+
+- clj-librato 0.0.5
+- Aleph and Lamina are now completely removed. Improves startup times and jar
+  sizes.
+- Websocket and SSE transports now based on httpkit. No instrumentation for
+  httpkit latencies sadly.
+- Upgrade from Netty 3 to Netty 4.0.21. Should see reduced CPU, slightly higher
+  throughput. Uses the epoll transport.
+- New mock macro in riemann.test-utils for testing integration streams.
+- riemann-clojure-client 0.3.1
+
 # Version 0.2.6
 
 Improvements to ease of use, expanded integration with other monitoring tools,
